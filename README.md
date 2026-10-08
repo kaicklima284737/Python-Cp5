@@ -1,35 +1,79 @@
-# Plataforma de Filmes e Séries — Crawler, API e Dashboard
+# Plataforma de Filmes e Séries: Crawler, API e Dashboard
 
 Fluxo: **TMDB API → Crawler → MongoDB → FastAPI → Dashboard**
 
-Fonte de dados: API pública do [TMDB](https://www.themoviedb.org/) (sem scraping do site).
-Uso educacional. Nenhum dado pessoal é coletado.
+Projeto educacional de coleta e análise de dados. O sistema coleta filmes e séries populares do TMDB, guarda no MongoDB, serve por uma API FastAPI e mostra tudo em um dashboard web.
+
+> This product uses the TMDB API but is not endorsed or certified by TMDB.
+
+## Site escolhido
+
+[TMDB (The Movie Database)](https://www.themoviedb.org/) é um catálogo público de filmes e séries.
+
+- A fonte é exclusivamente a **API oficial** do TMDB. Não há scraping do site.
+- O uso é educacional.
+- Nenhum dado pessoal é coletado.
+- A chave da API fica no `.env` e nunca é versionada.
+
+## Dados coletados
+
+**Filmes e séries populares** (até 500 páginas por tipo, o limite da API):
+
+| Campo | Descrição |
+|---|---|
+| `tmdb_id` | ID no TMDB |
+| `titulo` | Título |
+| `tipo` | `filme` ou `serie` |
+| `sinopse` | Sinopse, sem HTML |
+| `data_lancamento` | Data de lançamento ou de estreia |
+| `nota_media` | Nota de 0 a 10 |
+| `total_votos` | Quantidade de votos |
+| `popularidade` | Índice de popularidade do TMDB |
+| `idioma_original` | Ex.: `en`, `ja`, `pt` |
+| `generos` | Lista com os nomes dos gêneros |
+| `poster_url` | URL do pôster |
+| `data_coleta` | Data e hora da coleta (UTC) |
+| `origem` | De onde o dado veio |
+
+**Maiores bilheterias** (filmes ordenados por receita): `receita`, `orcamento` e `lucro`, em dólares, além do título, da data de lançamento, da nota e do pôster.
+
+### Tratamento dos dados
+- O BeautifulSoup remove tags HTML das sinopses. Espaços repetidos também são removidos.
+- Os ids de gênero viram nomes.
+- Números são convertidos e arredondados.
+- A URL do pôster é montada por completo.
+- Itens sem id ou sem título são descartados.
+- Duplicados na mesma coleta são ignorados.
 
 ## Arquitetura
 
-| Pasta | Responsabilidade |
+| Arquivo | Responsabilidade |
 |---|---|
-| `crawler/tmdb.py` | Chamadas à API do TMDB (requests) e validação das respostas |
-| `crawler/crawler.py` | Tratamento (BeautifulSoup limpa HTML da sinopse), deduplicação e gravação |
+| `config.py` | Lê as variáveis do `.env` |
+| `crawler/tmdb.py` | Chamadas à API do TMDB, validação das respostas e novas tentativas |
+| `crawler/crawler.py` | Coleta, tratamento e gravação |
 | `database/mongodb.py` | Conexão, índices e gravação no MongoDB |
 | `models/schemas.py` | Modelos Pydantic das respostas da API |
 | `api/main.py` | Endpoints FastAPI |
-| `dashboard/app.py` | Dashboard Streamlit (usa somente a API) |
-| `config.py` | Lê variáveis do `.env` |
+| `dashboard/app.py` | Interface Streamlit, que consome só a API |
+| `dashboard/busca.py` | Quicksort e busca binária usados na aba de detalhes |
+| `.streamlit/config.toml` | Tema do dashboard |
 
-O crawler roda sozinho, sem a API. O dashboard só fala com a API.
+O crawler roda sozinho, sem a API. O dashboard só fala com a API: não acessa o MongoDB nem o TMDB. Os pôsteres são imagens carregadas pelo navegador a partir do servidor de imagens do TMDB.
 
-## Estrutura
+## Estrutura de pastas
 
 ```
 project/
+├── .streamlit/config.toml
 ├── crawler/{tmdb.py, crawler.py}
 ├── database/mongodb.py
 ├── api/main.py
-├── dashboard/app.py
+├── dashboard/{app.py, busca.py}
 ├── models/schemas.py
 ├── config.py
 ├── .env.example
+├── .gitignore
 ├── requirements.txt
 └── README.md
 ```
@@ -38,14 +82,14 @@ project/
 
 ```bash
 python -m venv venv
-source venv/bin/activate        # Windows: venv\Scripts\activate
+venv\Scripts\activate           # Linux/Mac: source venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env            # Windows: copy .env.example .env
+copy .env.example .env          # Linux/Mac: cp .env.example .env
 ```
 
 ### Configurar o TMDB
 1. Crie uma conta em https://www.themoviedb.org/signup
-2. Acesse Configurações → API → solicite uma chave (uso pessoal/educacional).
+2. Acesse Configurações → API e solicite uma chave (uso pessoal/educacional).
 3. Copie a **API Key (v3 auth)** para `TMDB_API_KEY` no `.env`.
 
 ### Configurar o MongoDB
@@ -53,55 +97,49 @@ cp .env.example .env            # Windows: copy .env.example .env
 - **Docker:** `docker run -d --name mongo -p 27017:27017 mongo:7`
 - **Atlas (nuvem):** crie um cluster gratuito, libere seu IP e copie a connection string para `MONGODB_URI`.
 
-O banco (`tmdb_dashboard`) e as coleções são criados automaticamente.
+O banco (`tmdb_dashboard`), as coleções e os índices são criados automaticamente.
+
+### Variáveis do `.env`
+
+| Variável | Obrigatória | Descrição |
+|---|---|---|
+| `TMDB_API_KEY` | Sim | Chave da API do TMDB |
+| `MONGODB_URI` | Sim | Endereço do MongoDB |
+| `MONGODB_DB` | Não | Nome do banco (padrão `tmdb_dashboard`) |
+| `API_URL` | Não | Endereço da API (padrão `http://localhost:8000`) |
 
 ## Execução
 
-Execute cada comando na pasta `project/`, com o ambiente virtual ativo.
+Use um terminal para cada processo, na pasta do projeto e com o venv ativo.
 
 ```bash
-# 1. Crawler (3 páginas por tipo = 60 filmes + 60 séries)
+# 1. Crawler: todas as páginas disponíveis (até 500 por tipo)
+python -m crawler.crawler
+
+# Teste rápido: 3 páginas por tipo (60 filmes + 60 séries)
 python -m crawler.crawler --paginas 3
-# ou python -m crawler.crawler para carregar todos os filmes e páginas. 500 páginas ao todo de filmes
 
-# 2. API (docs automáticas em http://localhost:8000/docs)
-uvicorn api.main:app --reload
+# 2. API (documentação em http://localhost:8000/docs)
+uvicorn api.main:app
 
-# 3. Dashboard (em outro terminal) -> http://localhost:8501
+# 3. Dashboard (http://localhost:8501)
 streamlit run dashboard/app.py
 ```
 
-Rode o crawler quantas vezes quiser. Registros existentes são atualizados e o histórico é preservado.
+A coleta completa faz cerca de 1.000 requisições e leva alguns minutos. Cada página é salva assim que é coletada. Se der erro no meio, o que já foi salvo permanece.
+
+O crawler pode rodar quantas vezes quiser. Registros existentes são atualizados e o histórico é preservado.
 
 ## Banco de dados
 
 Banco: `tmdb_dashboard`
 
-### Coleção `titulos` (versão mais recente)
-Índice único: `(tmdb_id, tipo)` — evita duplicados.
+### Coleção `titulos` (versão mais recente de cada filme/série)
+Índice único em `(tmdb_id, tipo)`. Isso impede duplicados.
+Índices extras em `popularidade`, `nota_media` e `generos`.
 
-| Campo | Tipo | Descrição |
-|---|---|---|
-| `tmdb_id` | int | ID no TMDB |
-| `titulo` | string | Título |
-| `tipo` | string | `filme` ou `serie` |
-| `sinopse` | string | Sinopse sem HTML |
-| `data_lancamento` | string | `AAAA-MM-DD` (ou null) |
-| `nota_media` | float | 0 a 10 |
-| `total_votos` | int | Quantidade de votos |
-| `popularidade` | float | Índice do TMDB |
-| `idioma_original` | string | Ex.: `en`, `ja` |
-| `generos` | array[string] | Nomes dos gêneros |
-| `poster_url` | string | URL do pôster |
-| `data_coleta` | datetime | Última coleta (UTC) |
-| `primeira_coleta` | datetime | Primeira vez que apareceu |
-| `origem` | string | Origem dos dados |
+Os campos são os da tabela "Dados coletados". Além deles, o documento guarda `primeira_coleta`, a data da primeira vez que o registro apareceu.
 
-### Coleção `historico`
-Uma cópia do documento a cada coleta. Nunca é apagada.
-Permite acompanhar a evolução de nota, votos e popularidade.
-
-Exemplo:
 ```json
 {
   "tmdb_id": 550,
@@ -121,24 +159,63 @@ Exemplo:
 }
 ```
 
-## Endpoints
+### Coleção `historico`
+Uma cópia do documento a cada coleta. **Nunca é apagada.**
+Permite acompanhar a evolução de nota, votos e popularidade ao longo do tempo.
+
+### Coleção `bilheterias`
+Índice único em `tmdb_id`. Guarda a versão mais recente de cada filme do ranking.
+
+```json
+{
+  "tmdb_id": 19995,
+  "titulo": "Avatar",
+  "data_lancamento": "2009-12-15",
+  "receita": 2923706026,
+  "orcamento": 237000000,
+  "lucro": 2686706026,
+  "nota_media": 7.6,
+  "poster_url": "https://image.tmdb.org/t/p/w500/abc.jpg",
+  "data_coleta": "2026-10-08T12:00:00Z",
+  "primeira_coleta": "2026-10-08T12:00:00Z",
+  "origem": "TMDB API (https://api.themoviedb.org/3)"
+}
+```
+
+## Endpoints da API
 
 Documentação interativa: http://localhost:8000/docs
 
 | Método | Rota | Descrição |
 |---|---|---|
 | GET | `/filmes` | Lista com filtros, ordenação e paginação |
-| GET | `/filmes/{id}` | Um registro pelo ID TMDB (`?tipo=` opcional) |
+| GET | `/filmes/{id}` | Um registro pelo ID do TMDB (`?tipo=` opcional) |
 | GET | `/buscar` | Busca por texto no título e na sinopse |
-| GET | `/estatisticas` | Total, média, mais popular, maior nota, contagens |
+| GET | `/estatisticas` | Total, média, mais popular, maior nota e contagens |
 | GET | `/generos` | Gêneros disponíveis |
+| GET | `/bilheterias` | Maiores bilheterias (`?limite=`, de 1 a 50) |
 
-Filtros de `/filmes` e `/buscar`: `tipo` (`filme`/`serie`), `genero`, `nota_min`, `ano`,
-`ordenar_por` (`popularidade`, `nota_media`, `total_votos`, `titulo`, `data_lancamento`),
-`ordem` (`asc`/`desc`), `pagina`, `limite` (máx. 100).
+**Parâmetros de `/filmes` e `/buscar`**
+
+| Parâmetro | Descrição |
+|---|---|
+| `q` | Texto da busca (só em `/buscar`, obrigatório) |
+| `tipo` | `filme` ou `serie` |
+| `genero` | Nome do gênero |
+| `nota_min` | Nota mínima (0 a 10) |
+| `ano` | Ano de lançamento |
+| `ordenar_por` | `popularidade`, `nota_media`, `total_votos`, `titulo`, `data_lancamento` |
+| `ordem` | `asc` ou `desc` |
+| `pagina` | Número da página (começa em 1) |
+| `limite` | Itens por página (1 a 500) |
+
 `/estatisticas` aceita `tipo`, `genero` e `nota_min`.
 
-Em `/estatisticas`, a média ignora títulos sem votos. A "maior nota" exige ao menos 50 votos.
+Observações sobre as estatísticas:
+- A média das notas ignora títulos sem votos.
+- A "maior nota" exige pelo menos 50 votos.
+
+**Códigos de resposta:** `200` sucesso, `404` registro não encontrado, `422` parâmetro inválido, `503` banco indisponível.
 
 ### Exemplos
 
@@ -149,12 +226,13 @@ curl "http://localhost:8000/filmes/550?tipo=filme"
 curl "http://localhost:8000/buscar?q=guerra&tipo=filme"
 curl "http://localhost:8000/estatisticas"
 curl "http://localhost:8000/generos"
+curl "http://localhost:8000/bilheterias?limite=10"
 ```
 
 Resposta de `/filmes`:
 ```json
 {
-  "total": 120,
+  "total": 20000,
   "pagina": 1,
   "limite": 5,
   "resultados": [ { "tmdb_id": 550, "titulo": "...", "...": "..." } ]
@@ -163,24 +241,47 @@ Resposta de `/filmes`:
 
 ## Dashboard
 
-- Indicadores: total, média das avaliações, mais popular, maior avaliação.
-- Gráficos: top 10 popularidade, top 10 avaliação, distribuição por gênero.
-- Pesquisa por texto, filtros de tipo, gênero e nota mínima.
-- Tabela com pôster e dados.
+Três seções, escolhidas por botões no topo:
+
+1. **Visão geral**
+   - Indicadores: total de registros, média das avaliações, mais popular e maior avaliação.
+   - Gráficos: top 10 por popularidade, top 10 por avaliação e distribuição por gênero.
+   - Tabela com pôster, título, tipo, lançamento, nota, votos, popularidade e gêneros.
+2. **Detalhes do filme**
+   - Página individual de cada título, com pôster, métricas, sinopse, gêneros e dados da coleta.
+   - Barra de pesquisa. O título é ordenado com **quicksort**. A pesquisa por título exato usa **busca binária**. Sem correspondência exata, mostra os títulos que contêm o texto.
+3. **Bilheterias**
+   - Top 10 por receita, em gráfico e tabela com receita, orçamento e lucro.
+
+**Filtros da barra lateral:** pesquisa por texto, tipo, gênero, nota mínima e quantidade máxima de registros carregados (100 a 5000).
+
+**Desempenho:** as respostas da API ficam em cache por 5 minutos. Para ver dados novos antes disso, aperte `C` no navegador e limpe o cache.
+
+**Tema:** definido em `.streamlit/config.toml` e no CSS do `app.py`. Fundo ciano, elementos brancos e letras pretas.
 
 ## Demonstração
 
-1. `python -m crawler.crawler --paginas 3` — mostra quantos itens foram coletados.
-2. Abra o MongoDB Compass (ou `mongosh`) e mostre as coleções `titulos` e `historico`.
-   Com `mongosh`: `use tmdb_dashboard` e `db.titulos.countDocuments()`.
-3. Abra `/docs` e execute `/filmes` e `/estatisticas`.
-4. Abra o dashboard e use busca e filtros.
-5. Rode o crawler de novo: `titulos` mantém a contagem e `historico` cresce.
+1. Rodar o crawler: `python -m crawler.crawler --paginas 3`
+2. Abrir o MongoDB Compass (ou o `mongosh`) e mostrar as coleções `titulos`, `historico` e `bilheterias`.
+3. Abrir `/docs` e executar `/filmes`, `/buscar` e `/estatisticas`.
+4. Abrir o dashboard e percorrer as três seções, usando filtros e pesquisa.
+5. Rodar o crawler de novo. `titulos` mantém a contagem e `historico` cresce.
 
 ## Problemas comuns
 
-- **`TMDB_API_KEY não definida`**: confira o `.env` na pasta `project/`.
-- **`status 401`**: chave inválida.
-- **`não foi possível conectar ao MongoDB`**: serviço desligado ou URI errada.
-- **Dashboard sem acesso à API**: inicie o uvicorn antes. Mude `API_URL` no `.env` se usar outra porta.
-- **Dashboard vazio**: rode o crawler primeiro.
+| Problema | Solução |
+|---|---|
+| `ModuleNotFoundError` | Ative o venv e rode `pip install -r requirements.txt` |
+| `TMDB_API_KEY não definida` | Confira o `.env` na pasta do projeto |
+| `TMDB retornou status 401` | Chave da API inválida |
+| `não foi possível conectar ao MongoDB` | Serviço desligado ou `MONGODB_URI` errada |
+| Dashboard: "Não foi possível acessar a API" | Inicie o uvicorn antes. Teste `http://localhost:8000/generos` |
+| API retorna `503` | MongoDB indisponível |
+| Dashboard vazio | Rode o crawler primeiro |
+| Aba Bilheterias vazia | Rode o crawler. Ele coleta as bilheterias no final |
+| Tema não muda | A pasta `.streamlit` deve ficar onde você roda o `streamlit run`. Reinicie o Streamlit |
+
+## Créditos
+
+Dados fornecidos pelo [TMDB](https://www.themoviedb.org/).
+This product uses the TMDB API but is not endorsed or certified by TMDB.

@@ -438,3 +438,5 @@ else:
         mostrar_visao_geral(stats, df)
     else:
         mostrar_detalhes(df)
+
+st.caption("This product uses the TMDB API but is not endorsed or certified by TMDB.")

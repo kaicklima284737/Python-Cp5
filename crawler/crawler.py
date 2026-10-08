@@ -11,7 +11,7 @@ from crawler import tmdb
 from database import mongodb
 
 ORIGEM = "TMDB API (https://api.themoviedb.org/3)"
-LIMITE_PAGINAS_TMDB = 500  # o TMDB não entrega mais que 500 páginas por lista
+LIMITE_PAGINAS_TMDB = 500  
 
 
 def limpar_texto(texto):
@@ -155,7 +155,7 @@ def main():
     except PyMongoError:
         print("Erro ao salvar bilheterias no MongoDB.")
         sys.exit(1)
-        
+
     if houve_erro:
         sys.exit(1)
 
