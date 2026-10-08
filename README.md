@@ -1,5 +1,19 @@
 # Plataforma de Filmes e Séries: Crawler, API e Dashboard
 
+Integrantes:
+
+Kaick Lima Silva | RM:574060
+
+Gustavo Basso | RM:572623
+
+Guilherme Sales | RM:572933
+
+Pedro Feltrin | RM:569038
+
+Guilherme Kozikoski | RM:571611
+
+
+
 Fluxo: **TMDB API → Crawler → MongoDB → FastAPI → Dashboard**
 
 Projeto educacional de coleta e análise de dados. O sistema coleta filmes e séries populares do TMDB, guarda no MongoDB, serve por uma API FastAPI e mostra tudo em um dashboard web.
