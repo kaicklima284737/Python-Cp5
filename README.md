@@ -2,17 +2,13 @@
 
 Integrantes:
 
-Kaick Lima Silva | RM:574060
-
-Gustavo Basso | RM:572623
-
-Guilherme Sales | RM:572933
-
-Pedro Feltrin | RM:569038
-
-Guilherme Kozikoski | RM:571611
-
-
+| Nome | RM |
+|------|----|
+| Kaick Lima Silva | RM:574060 |
+| Gustavo Basso | RM:572623 |
+| Guilherme Sales | RM:572933 |
+| Pedro Feltrin | RM:569038 |
+| Guilherme Kozikoski | RM:571611 |
 
 Fluxo: **TMDB API → Crawler → MongoDB → FastAPI → Dashboard**
 
