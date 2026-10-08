@@ -1,6 +1,6 @@
 # Plataforma de Filmes e Séries: Crawler, API e Dashboard
 
-Integrantes:
+**Integrantes:**
 
 | Nome | RM |
 |------|----|
