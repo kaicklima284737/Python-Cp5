@@ -35,3 +35,17 @@ class Estatisticas(BaseModel):
     maior_nota: Optional[Titulo] = None
     por_tipo: Dict[str, int]
     por_genero: Dict[str, int]
+
+
+class Bilheteria(BaseModel):
+    tmdb_id: int
+    titulo: str
+    data_lancamento: Optional[str] = None
+    receita: int = 0
+    orcamento: int = 0
+    lucro: int = 0
+    nota_media: float = 0
+    poster_url: Optional[str] = None
+    data_coleta: datetime
+    primeira_coleta: Optional[datetime] = None
+    origem: str

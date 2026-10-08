@@ -62,6 +62,7 @@ Execute cada comando na pasta `project/`, com o ambiente virtual ativo.
 ```bash
 # 1. Crawler (3 páginas por tipo = 60 filmes + 60 séries)
 python -m crawler.crawler --paginas 3
+# ou python -m crawler.crawler para carregar todos os filmes e páginas. 500 páginas ao todo de filmes
 
 # 2. API (docs automáticas em http://localhost:8000/docs)
 uvicorn api.main:app --reload

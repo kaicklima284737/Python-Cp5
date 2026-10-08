@@ -1,3 +1,5 @@
+import time
+
 import requests
 
 from config import IDIOMA, TMDB_API_KEY, TMDB_BASE_URL
@@ -15,9 +17,14 @@ def _get(caminho, params=None):
 
     params = {"api_key": TMDB_API_KEY, "language": IDIOMA, **(params or {})}
     try:
-        resposta = requests.get(f"{TMDB_BASE_URL}{caminho}", params=params, timeout=10)
-        resposta.raise_for_status()
-        return resposta.json()
+        for _ in range(3):
+            resposta = requests.get(f"{TMDB_BASE_URL}{caminho}", params=params, timeout=10)
+            if resposta.status_code == 429:  # limite de requisições: espera e tenta de novo
+                time.sleep(min(int(resposta.headers.get("Retry-After", 2)), 10))
+                continue
+            resposta.raise_for_status()
+            return resposta.json()
+        raise TmdbErro("Limite de requisições do TMDB excedido")
     except requests.HTTPError as erro:
         # Não imprime o erro original: a URL contém a chave da API
         raise TmdbErro(f"TMDB retornou status {erro.response.status_code}")
@@ -36,8 +43,22 @@ def buscar_generos(tipo):
 
 
 def buscar_populares(tipo, pagina=1):
-    """Retorna a lista de itens populares de uma página."""
+    """Retorna {'results': [...], 'total_pages': n} de uma página."""
     dados = _get(f"/{CAMINHOS[tipo]}/popular", {"page": pagina})
     if "results" not in dados:
         raise TmdbErro("Resposta de populares inválida")
+    return {"results": dados["results"], "total_pages": dados.get("total_pages", 1)}
+
+def buscar_maiores_bilheterias(pagina=1):
+    """Filmes ordenados por receita (a receita em si vem nos detalhes)."""
+    dados = _get("/discover/movie", {"sort_by": "revenue.desc", "page": pagina})
+    if "results" not in dados:
+        raise TmdbErro("Resposta de bilheterias inválida")
     return dados["results"]
+
+
+def buscar_detalhes_filme(tmdb_id):
+    dados = _get(f"/movie/{tmdb_id}")
+    if "id" not in dados:
+        raise TmdbErro("Detalhes do filme inválidos")
+    return dados

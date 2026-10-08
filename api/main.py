@@ -2,12 +2,12 @@ import re
 from typing import Literal, Optional
 
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from pymongo import ASCENDING, DESCENDING
 from pymongo.errors import PyMongoError
 
-from database.mongodb import get_titulos
-from models.schemas import Estatisticas, ListaTitulos, Titulo
+from database.mongodb import get_bilheterias, get_titulos
+from models.schemas import Bilheteria, Estatisticas, ListaTitulos, Titulo
 
 MIN_VOTOS_MAIOR_NOTA = 50  # evita que títulos com poucos votos dominem o ranking
 
@@ -52,6 +52,11 @@ def consultar(filtro, ordenar_por, ordem, pagina, limite):
     return {"total": total, "pagina": pagina, "limite": limite, "resultados": list(cursor)}
 
 
+@app.get("/", include_in_schema=False)
+def inicio():
+    return RedirectResponse("/docs")
+
+
 @app.get("/filmes", response_model=ListaTitulos, summary="Lista filmes e séries")
 def listar(
     tipo: Optional[Tipo] = None,
@@ -61,7 +66,7 @@ def listar(
     ordenar_por: CampoOrdem = "popularidade",
     ordem: Literal["asc", "desc"] = "desc",
     pagina: int = Query(1, ge=1),
-    limite: int = Query(20, ge=1, le=100),
+    limite: int = Query(20, ge=1, le=500),
 ):
     filtro = montar_filtro(tipo, genero, nota_min, ano)
     return consultar(filtro, ordenar_por, ordem, pagina, limite)
@@ -88,7 +93,7 @@ def buscar(
     ordenar_por: CampoOrdem = "popularidade",
     ordem: Literal["asc", "desc"] = "desc",
     pagina: int = Query(1, ge=1),
-    limite: int = Query(20, ge=1, le=100),
+    limite: int = Query(20, ge=1, le=500),
 ):
     filtro = montar_filtro(tipo, genero, nota_min, ano)
     texto = {"$regex": re.escape(q), "$options": "i"}
@@ -98,7 +103,7 @@ def buscar(
 
 @app.get("/generos", response_model=list[str], summary="Lista os gêneros disponíveis")
 def generos():
-    return sorted(get_titulos().distinct("generos"))
+    return sorted(g for g in get_titulos().distinct("generos") if g)
 
 
 def media_das_notas(filtro):
@@ -127,6 +132,7 @@ def estatisticas(
         [
             {"$match": filtro},
             {"$unwind": "$generos"},
+            {"$match": {"generos": {"$ne": None}}},
             {"$group": {"_id": "$generos", "qtd": {"$sum": 1}}},
             {"$sort": {"qtd": -1}},
         ]
@@ -141,6 +147,12 @@ def estatisticas(
             {"_id": 0},
             sort=[("nota_media", DESCENDING), ("total_votos", DESCENDING)],
         ),
-        "por_tipo": {item["_id"]: item["qtd"] for item in por_tipo},
+        "por_tipo": {item["_id"]: item["qtd"] for item in por_tipo if item["_id"]},
         "por_genero": {item["_id"]: item["qtd"] for item in por_genero},
     }
+
+
+@app.get("/bilheterias", response_model=list[Bilheteria], summary="Maiores bilheterias")
+def bilheterias(limite: int = Query(10, ge=1, le=50)):
+    cursor = get_bilheterias().find({}, {"_id": 0}).sort("receita", DESCENDING).limit(limite)
+    return list(cursor)

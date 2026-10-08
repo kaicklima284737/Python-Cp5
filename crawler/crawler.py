@@ -1,5 +1,6 @@
 import argparse
 import sys
+import time
 from datetime import datetime, timezone
 
 from bs4 import BeautifulSoup
@@ -10,6 +11,7 @@ from crawler import tmdb
 from database import mongodb
 
 ORIGEM = "TMDB API (https://api.themoviedb.org/3)"
+LIMITE_PAGINAS_TMDB = 500  # o TMDB não entrega mais que 500 páginas por lista
 
 
 def limpar_texto(texto):
@@ -46,24 +48,82 @@ def tratar_item(item, tipo, generos, agora):
         "origem": ORIGEM,
     }
 
+def tratar_bilheteria(detalhes, agora):
+    receita = int(detalhes.get("revenue") or 0)
+    orcamento = int(detalhes.get("budget") or 0)
+    poster = detalhes.get("poster_path")
+    return {
+        "tmdb_id": detalhes["id"],
+        "titulo": limpar_texto(detalhes.get("title")),
+        "data_lancamento": detalhes.get("release_date") or None,
+        "receita": receita,
+        "orcamento": orcamento,
+        "lucro": receita - orcamento,
+        "nota_media": round(float(detalhes.get("vote_average") or 0), 1),
+        "poster_url": f"{TMDB_IMAGE_URL}{poster}" if poster else None,
+        "data_coleta": agora,
+        "origem": ORIGEM,
+    }
+
+
+def coletar_bilheterias(agora, quantidade=20):
+    salvos = 0
+    for bruto in tmdb.buscar_maiores_bilheterias()[:quantidade]:
+        try:
+            detalhes = tmdb.buscar_detalhes_filme(bruto["id"])
+        except tmdb.TmdbErro:
+            continue
+        doc = tratar_bilheteria(detalhes, agora)
+        if doc["receita"] > 0:
+            mongodb.salvar_bilheteria(doc)
+            salvos += 1
+        time.sleep(0.05)
+    return salvos
+
 
 def coletar_tipo(tipo, paginas, agora):
+    """Coleta página por página e salva cada página na hora. paginas=0 -> todas."""
     generos = tmdb.buscar_generos(tipo)
-    itens = {}  # chave = id, evita duplicados dentro da mesma coleta
-    for pagina in range(1, paginas + 1):
-        for bruto in tmdb.buscar_populares(tipo, pagina):
+    vistos = set()  # evita duplicados dentro da mesma coleta
+    total = novos = 0
+    pagina = 1
+    ultima = paginas
+
+    while True:
+        dados = tmdb.buscar_populares(tipo, pagina)
+        if pagina == 1:
+            disponiveis = min(dados["total_pages"], LIMITE_PAGINAS_TMDB)
+            ultima = min(paginas, disponiveis) if paginas else disponiveis
+
+        itens = []
+        for bruto in dados["results"]:
             item = tratar_item(bruto, tipo, generos, agora)
-            if item:
-                itens[item["tmdb_id"]] = item
-    return list(itens.values())
+            if item and item["tmdb_id"] not in vistos:
+                vistos.add(item["tmdb_id"])
+                itens.append(item)
+
+        novos += mongodb.salvar_lote(itens)
+        total += len(itens)
+
+        if pagina % 25 == 0 or pagina == ultima:
+            print(f"{tipo}: página {pagina}/{ultima} ({total} registros)")
+        if pagina >= ultima:
+            return total, novos
+        pagina += 1
+        time.sleep(0.05)  # respeita o limite de requisições do TMDB
 
 
 def main():
     parser = argparse.ArgumentParser(description="Coleta filmes e séries populares do TMDB")
-    parser.add_argument("--paginas", type=int, default=3, help="páginas por tipo (20 itens cada)")
+    parser.add_argument(
+        "--paginas",
+        type=int,
+        default=0,
+        help="páginas por tipo (20 itens cada). 0 = todas (máx. 500)",
+    )
     args = parser.parse_args()
-    if args.paginas < 1:
-        parser.error("--paginas deve ser maior que 0")
+    if args.paginas < 0:
+        parser.error("--paginas não pode ser negativo")
 
     try:
         mongodb.testar_conexao()
@@ -77,8 +137,7 @@ def main():
 
     for tipo in ("filme", "serie"):
         try:
-            itens = coletar_tipo(tipo, args.paginas, agora)
-            novos = sum(1 for item in itens if mongodb.salvar_titulo(item))
+            total, novos = coletar_tipo(tipo, args.paginas, agora)
         except tmdb.TmdbErro as erro:
             print(f"Erro ao coletar {tipo}: {erro}")
             houve_erro = True
@@ -86,8 +145,17 @@ def main():
         except PyMongoError:
             print("Erro ao salvar no MongoDB.")
             sys.exit(1)
-        print(f"{tipo}: {len(itens)} coletados, {novos} novos, {len(itens) - novos} atualizados")
+        print(f"{tipo}: {total} coletados, {novos} novos, {total - novos} atualizados")
 
+    try:
+        print(f"bilheterias: {coletar_bilheterias(agora)} salvas")
+    except tmdb.TmdbErro as erro:
+        print(f"Erro ao coletar bilheterias: {erro}")
+        houve_erro = True
+    except PyMongoError:
+        print("Erro ao salvar bilheterias no MongoDB.")
+        sys.exit(1)
+        
     if houve_erro:
         sys.exit(1)
 
